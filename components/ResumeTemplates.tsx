@@ -337,13 +337,13 @@ interface MainTemplateSelectorProps {
 }
 
 export function ResumeRenderer({ templateId, data }: MainTemplateSelectorProps) {
-    switch (templateId) {
-        case 'executive':
-            return <ExecutiveCleanTemplate data={data} />;
-        case 'creative':
-            return <CreativeMinimalTemplate data={data} />;
-        case 'modern':
-        default:
-            return <ModernTechTemplate data={data} />;
-    }
+    return (
+        <div id="resume-preview" className="w-full">
+            {templateId === 'executive' && <ExecutiveCleanTemplate data={data} />}
+            {templateId === 'creative' && <CreativeMinimalTemplate data={data} />}
+            {(templateId === 'modern' || !['executive', 'creative'].includes(templateId)) && (
+                <ModernTechTemplate data={data} />
+            )}
+        </div>
+    );
 }

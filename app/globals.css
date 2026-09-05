@@ -63,19 +63,40 @@ body {
   background: #8b5cf6;
 }
 
-/* Print Optimization for PDF Export */
+/* Print Optimization for PDF Export & Browser Print */
 @media print {
+
+  html,
   body {
     background: #ffffff !important;
     color: #000000 !important;
+    height: auto !important;
+    overflow: visible !important;
   }
+
   .no-print {
     display: none !important;
   }
-  .print-only-container {
+
+  * {
+    box-shadow: none !important;
+    text-shadow: none !important;
+  }
+
+  div,
+  section,
+  main,
+  header,
+  container {
+    background: transparent !important;
+    height: auto !important;
+    max-height: none !important;
+    overflow: visible !important;
+  }
+
+  #resume-preview {
     width: 100% !important;
     margin: 0 !important;
     padding: 0 !important;
-    box-shadow: none !important;
   }
 }

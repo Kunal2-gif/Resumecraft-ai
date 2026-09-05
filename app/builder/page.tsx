@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import Link from 'next/link';
 import Navbar from '@/components/Navbar';
 import AtsScoreCircle from '@/components/AtsScoreCircle';
@@ -24,13 +24,20 @@ import {
     Sliders,
     Layers,
     Search,
-    Check
+    Check,
+    Loader2
 } from 'lucide-react';
 
 export default function BuilderPage() {
     const [activeTab, setActiveTab] = useState<'jd' | 'editor' | 'ai'>('jd');
     const [template, setTemplate] = useState<TemplateId>('modern');
     const [resumeData, setResumeData] = useState<ResumeData>(initialResumeData);
+
+    // File Upload & Drag state
+    const fileInputRef = useRef<HTMLInputElement>(null);
+    const [isDragging, setIsDragging] = useState<boolean>(false);
+    const [uploadStatus, setUploadStatus] = useState<string>('');
+    const [isGeneratingPdf, setIsGeneratingPdf] = useState<boolean>(false);
 
     // Job Description & ATS Analysis state
     const [jobDescription, setJobDescription] = useState<string>(
@@ -52,6 +59,58 @@ export default function BuilderPage() {
         "Docker Containerization",
         "Microservice Architecture"
     ]);
+
+    // File Drag & Drop Handlers
+    const handleFileDrop = (e: React.DragEvent<HTMLDivElement>) => {
+        e.preventDefault();
+        setIsDragging(false);
+        const file = e.dataTransfer?.files?.[0];
+        if (file) {
+            processFile(file);
+        }
+    };
+
+    const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (file) {
+            processFile(file);
+        }
+    };
+
+    const processFile = (file: File) => {
+        setUploadStatus(`Uploaded: ${file.name}`);
+        const reader = new FileReader();
+
+        if (file.name.toLowerCase().endsWith('.json')) {
+            reader.onload = (event) => {
+                try {
+                    const parsed = JSON.parse(event.target?.result as string);
+                    if (parsed.fullName || parsed.skills || parsed.experiences) {
+                        setResumeData((prev) => ({ ...prev, ...parsed }));
+                        setUploadStatus(`Imported structured resume from ${file.name}`);
+                    }
+                } catch (err) {
+                    setUploadStatus(`Could not parse JSON structure.`);
+                }
+            };
+            reader.readAsText(file);
+        } else {
+            reader.onload = (event) => {
+                const text = event.target?.result as string;
+                if (!text) return;
+                const lines = text.split('\n').map((l) => l.trim()).filter(Boolean);
+                if (lines.length > 0) {
+                    setResumeData((prev) => ({
+                        ...prev,
+                        fullName: lines[0] || prev.fullName,
+                        summary: lines.slice(1, 4).join(' ') || prev.summary
+                    }));
+                    setUploadStatus(`Extracted resume text from ${file.name}`);
+                }
+            };
+            reader.readAsText(file);
+        }
+    };
 
     // Handle section text updates
     const handlePersonalInfoChange = (field: keyof ResumeData, value: string) => {
@@ -77,7 +136,6 @@ export default function BuilderPage() {
     const handleAddKeywordToSkills = (keyword: string) => {
         handleSkillAdd(keyword);
         setMissingKeywords((prev) => prev.filter((k) => k !== keyword));
-        // Dynamic score boost on keyword fix
         setAtsScore((prev) => Math.min(100, prev + 3));
         setKeywordScore((prev) => Math.min(100, prev + 4));
     };
@@ -155,9 +213,38 @@ export default function BuilderPage() {
         }, 1000);
     };
 
-    // PDF Export Trigger
-    const handleDownloadPdf = () => {
-        window.print();
+    // Direct High-Quality PDF Export
+    const handleDownloadPdf = async () => {
+        const element = document.getElementById('resume-preview');
+        if (!element) {
+            window.print();
+            return;
+        }
+        setIsGeneratingPdf(true);
+        try {
+            const html2canvas = (await import('html2canvas')).default;
+            const { jsPDF } = await import('jspdf');
+
+            const canvas = await html2canvas(element, {
+                scale: 2,
+                useCORS: true,
+                logging: false,
+                backgroundColor: '#ffffff'
+            });
+
+            const imgData = canvas.toDataURL('image/png');
+            const pdf = new jsPDF('p', 'mm', 'a4');
+            const pdfWidth = pdf.internal.pageSize.getWidth();
+            const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
+
+            pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight);
+            pdf.save(`${(resumeData.fullName || 'Resume').replace(/\s+/g, '_')}_Resume.pdf`);
+        } catch (err) {
+            console.error("Client-side PDF failed, falling back to print dialog:", err);
+            window.print();
+        } finally {
+            setIsGeneratingPdf(false);
+        }
     };
 
     return (
@@ -189,8 +276,8 @@ export default function BuilderPage() {
                             key={tId}
                             onClick={() => setTemplate(tId)}
                             className={`px-3 py-1.5 rounded-lg font-semibold capitalize transition-all ${template === tId
-                                    ? 'bg-violet-600 text-white shadow-sm'
-                                    : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800'
+                                ? 'bg-violet-600 text-white shadow-sm'
+                                : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800'
                                 }`}
                         >
                             {tId}
@@ -211,10 +298,15 @@ export default function BuilderPage() {
 
                     <button
                         onClick={handleDownloadPdf}
-                        className="px-4 py-2 text-xs font-bold text-white bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 rounded-lg shadow-lg shadow-violet-600/25 border border-violet-400/30 flex items-center gap-2 transition-all"
+                        disabled={isGeneratingPdf}
+                        className="px-4 py-2 text-xs font-bold text-white bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 rounded-lg shadow-lg shadow-violet-600/25 border border-violet-400/30 flex items-center gap-2 transition-all disabled:opacity-75"
                     >
-                        <Download className="w-4 h-4" />
-                        <span>Download PDF</span>
+                        {isGeneratingPdf ? (
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                        ) : (
+                            <Download className="w-4 h-4" />
+                        )}
+                        <span>{isGeneratingPdf ? 'Generating PDF...' : 'Download PDF'}</span>
                     </button>
                 </div>
 
@@ -233,8 +325,8 @@ export default function BuilderPage() {
                         <button
                             onClick={() => setActiveTab('jd')}
                             className={`flex-1 py-3 px-3 text-xs font-semibold flex items-center justify-center gap-2 border-b-2 transition-colors ${activeTab === 'jd'
-                                    ? 'border-violet-500 text-violet-300 bg-violet-950/20'
-                                    : 'border-transparent text-zinc-400 hover:text-zinc-200'
+                                ? 'border-violet-500 text-violet-300 bg-violet-950/20'
+                                : 'border-transparent text-zinc-400 hover:text-zinc-200'
                                 }`}
                         >
                             <UploadCloud className="w-4 h-4" />
@@ -243,8 +335,8 @@ export default function BuilderPage() {
                         <button
                             onClick={() => setActiveTab('editor')}
                             className={`flex-1 py-3 px-3 text-xs font-semibold flex items-center justify-center gap-2 border-b-2 transition-colors ${activeTab === 'editor'
-                                    ? 'border-violet-500 text-violet-300 bg-violet-950/20'
-                                    : 'border-transparent text-zinc-400 hover:text-zinc-200'
+                                ? 'border-violet-500 text-violet-300 bg-violet-950/20'
+                                : 'border-transparent text-zinc-400 hover:text-zinc-200'
                                 }`}
                         >
                             <FileText className="w-4 h-4" />
@@ -253,8 +345,8 @@ export default function BuilderPage() {
                         <button
                             onClick={() => setActiveTab('ai')}
                             className={`flex-1 py-3 px-3 text-xs font-semibold flex items-center justify-center gap-2 border-b-2 transition-colors ${activeTab === 'ai'
-                                    ? 'border-violet-500 text-violet-300 bg-violet-950/20'
-                                    : 'border-transparent text-zinc-400 hover:text-zinc-200'
+                                ? 'border-violet-500 text-violet-300 bg-violet-950/20'
+                                : 'border-transparent text-zinc-400 hover:text-zinc-200'
                                 }`}
                         >
                             <Wand2 className="w-4 h-4 text-violet-400" />
@@ -272,24 +364,60 @@ export default function BuilderPage() {
                                     <UploadCloud className="w-4 h-4 text-violet-400" />
                                     Upload Existing Resume
                                 </label>
-                                <div className="p-6 rounded-xl border-2 border-dashed border-zinc-800 bg-zinc-950/60 hover:border-violet-500/50 hover:bg-zinc-900/40 transition-all text-center group cursor-pointer">
-                                    <UploadCloud className="w-8 h-8 text-zinc-500 group-hover:text-violet-400 transition-colors mx-auto mb-2" />
-                                    <p className="text-xs font-semibold text-zinc-300">Drag & drop your resume PDF or DOCX</p>
-                                    <p className="text-[11px] text-zinc-500 mt-1">Or click to select file from computer</p>
+
+                                <input
+                                    type="file"
+                                    ref={fileInputRef}
+                                    onChange={handleFileSelect}
+                                    accept=".txt,.json,.pdf,.docx"
+                                    className="hidden"
+                                />
+
+                                <div
+                                    onDragOver={(e) => {
+                                        e.preventDefault();
+                                        setIsDragging(true);
+                                    }}
+                                    onDragLeave={(e) => {
+                                        e.preventDefault();
+                                        setIsDragging(false);
+                                    }}
+                                    onDrop={handleFileDrop}
+                                    onClick={() => fileInputRef.current?.click()}
+                                    className={`p-6 rounded-xl border-2 border-dashed transition-all cursor-pointer flex flex-col items-center justify-center text-center gap-2 group ${isDragging
+                                        ? 'border-violet-500 bg-violet-950/30'
+                                        : 'border-zinc-800 bg-zinc-950/60 hover:border-violet-500/50 hover:bg-zinc-900/40'
+                                        }`}
+                                >
+                                    <div className="w-10 h-10 rounded-full bg-violet-950/80 border border-violet-500/30 flex items-center justify-center text-violet-400 group-hover:scale-110 transition-transform">
+                                        <UploadCloud className="w-5 h-5" />
+                                    </div>
+                                    <div>
+                                        <p className="text-xs font-semibold text-zinc-200">
+                                            <span className="text-violet-400 font-bold">Click to upload</span> or drag and drop
+                                        </p>
+                                        <p className="text-[11px] text-zinc-500 mt-0.5">
+                                            Supports TXT, JSON, PDF or DOCX files
+                                        </p>
+                                    </div>
                                 </div>
+
+                                {uploadStatus && (
+                                    <p className="text-xs font-medium text-emerald-400 flex items-center gap-1.5 pt-1">
+                                        <CheckCircle2 className="w-3.5 h-3.5" />
+                                        {uploadStatus}
+                                    </p>
+                                )}
                             </div>
 
-                            {/* Job Description Textarea */}
+                            {/* Job Description Box */}
                             <div className="space-y-2">
-                                <div className="flex justify-between items-center">
-                                    <label className="text-xs font-bold text-zinc-300 uppercase tracking-wider flex items-center gap-2">
-                                        <FileText className="w-4 h-4 text-violet-400" />
-                                        Target Job Description (JD)
-                                    </label>
-                                    <span className="text-[11px] text-violet-400 font-medium">Paste JD for 100% ATS Match</span>
-                                </div>
+                                <label className="text-xs font-bold text-zinc-300 uppercase tracking-wider flex items-center gap-2">
+                                    <FileText className="w-4 h-4 text-violet-400" />
+                                    Target Job Description
+                                </label>
                                 <textarea
-                                    rows={8}
+                                    rows={7}
                                     value={jobDescription}
                                     onChange={(e) => setJobDescription(e.target.value)}
                                     placeholder="Paste the target job description requirements here..."
